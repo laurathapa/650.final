@@ -1,0 +1,241 @@
+#Laura Thapa
+
+#Libraries
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(lm.beta))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(Hmisc))
+
+#Data
+brfs <- read_csv('BRFSS2015.csv')
+
+# Adding a character to names with underscores in them
+names(brfs) <- names(brfs) %>%  make.names()
+
+#Q1: How many people have any kind of health care coverage?
+Q1 <- brfs %>%
+  filter(HLTHPLN1 == 1) %>%
+  count(HLTHPLN1) %>%
+  select(n) %>%
+  summarise(Have_Coverage = n)
+
+#Q2: What is the average "Number of Days Mental Health Not Good" for those in Pennsylvania who have numeric data?
+# Change the response corresponding to none to 0
+brfs$MENTHLTH[brfs$MENTHLTH==88]<- 0
+
+Q2 <- brfs %>%
+  filter(X_STATE == 42 & MENTHLTH <=30) %>%
+  select(MENTHLTH) %>%
+  summarise(avgDays_MH_notgood = round(mean(MENTHLTH, na.rm=TRUE), 2))
+
+
+#Q3: Arthritis: mean and sd of weight
+Q3 <- brfs %>%
+  mutate(kg_wt = WTKG3 /100,
+         lb_wt = kg_wt * 2.20462) %>%
+  group_by(HAVARTH3)%>%
+  summarise(mean_weight = round(mean(lb_wt, na.rm=TRUE),2), sd_weight = round(sd(lb_wt, na.rm=TRUE), 2))%>%
+  head(2)
+
+#Marital Status and Physcial Activiy 
+brfs$MARITAL <- as.factor(brfs$MARITAL)
+
+brfs_1 <- brfs%>%
+  filter(MARITAL!='9', !is.na(PA1MIN_))
+
+#Q4: Remove Outliers. Remaining Data 
+PA_upper <- quantile(brfs_1$PA1MIN_, 0.997, na.rm = TRUE)
+
+PA_lower <- quantile(brfs_1$PA1MIN_, 0.003, na.rm = TRUE)
+
+lower <- round(PA_lower,2)
+
+PA_outliers <- which(brfs_1$PA1MIN_ > PA_upper | brfs_1$PA1MIN_ < lower)
+
+remain <- (nrow(brfs_1) - length(PA_outliers))/ nrow(brfs_1)*100
+Q4 <- round(remain,2)
+
+#Take Outliers out of Data
+brfs_noOut <- brfs_1[-PA_outliers,]
+
+#Q5:Group by marital status and calculate the mean, standard deviation, minimum, and maximum of total exercise, to two decimals.
+Q5 <- brfs_noOut%>%
+  group_by(MARITAL)%>%
+  summarise(mean_PA = round(mean(PA1MIN_),2), 
+            sd_PA = round(sd(PA1MIN_), 2),
+            min_PA = round(min(PA1MIN_),2),
+            max_PA = round(max(PA1MIN_),2))
+
+#Q6: Create a boxplot for total exercise by marital status.
+Q6 <-boxplot(PA1MIN_~MARITAL, data=brfs_noOut, main="Total Exercise by Marital Status",
+             xlab="Marital Status", ylab="Minutes of Exercise per Week")
+
+#Q7: Run a regression predicting exercise by marital status. Assign the model summary to Q7.
+reg1 <- lm(PA1MIN_ ~ MARITAL, data = brfs_noOut)
+Q7 <- summary(reg1)
+
+#Q8:Run an ANOVA comparing exercise across marital status, and assign the TukeyHSD post-hoc test to Q8.
+av1 <- aov(PA1MIN_ ~ MARITAL, data= brfs_noOut)
+Q8 <- TukeyHSD(av1)
+
+#Q9: Run a regression as in Q7, but add total fruits consumed per day. 
+#Based on the R-squared and AIC, what is the better model? Assign the better AIC value to Q9.
+reg2 <- lm(PA1MIN_ ~ MARITAL + X_FRUTSUM, data= brfs_noOut)
+
+summary(reg1)$r.squared 
+AIC(reg1)
+
+summary(reg2)$r.squared 
+Q9 <- AIC(reg2)
+
+#Choose four variables to explore:
+
+#Diabetes:DIABETE3 (1=yes, 3=no, 4=borderline)
+  ##omit while pregnant (2), don't know(7), refused(9) 
+
+#Education level (1-6, 9 refused):EDUCA
+
+#Days in past month had an alcoholic beverage: ALCDAY5
+  ##101 - 199: 1__ (per week)
+  ##200 - 299: 2__ (per month)
+  ##777: don't know
+  ##888: no drinks
+  ##999: refused
+
+#Male/Female: SEX
+
+# Data
+#Omit not sure/ refused/ gestational diabetes
+
+df_clean <- brfs %>% 
+  filter(ALCDAY5!='888', 
+         ALCDAY5!='777', 
+         ALCDAY5!='999',
+         EDUCA!= '9',
+         DIABETE3!='2',
+         DIABETE3!= '4',
+         DIABETE3 !='7',
+         DIABETE3 != '9')%>%
+  select(SEX, EDUCA, DIABETE3,ALCDAY5)%>%
+  na.omit()
+
+#Q10:Remove any outliers. Why this method?:
+#3% and 97% represent the useful values from the data
+alc_upper <- quantile(df_clean$ALCDAY5, 0.997, na.rm = TRUE)
+
+alc_lower <- quantile(df_clean$ALCDAY5, 0.003, na.rm = TRUE)
+
+alc_no_outliers <- which(df_clean$ALCDAY5 > alc_upper | df_clean$ALCDAY5 < alc_lower)
+
+Q10 <-alc_no_outliers 
+
+
+#Q11: Address the values of any variables
+#see above 'df_clean'
+#ALCDAY5: 777=don't know, 888= no drinks, 999= refused
+#EDUCA: 9 = refused
+#DIBETE3: 2=only when pregnant, 7=don't know, 9=refused
+
+Q11 <- df_clean
+
+#Q12:Complete exploratory analyses doing appropriate visualizations with ggplot2.
+
+## Alcohol consumption days per month
+df_alc_month <- df_clean%>%
+  subset(ALCDAY5 >=201 & ALCDAY5 <= 299)%>%
+  mutate(alc_per_month = ALCDAY5 - 200)%>%
+
+## Correlation Matrix
+cor_month <- cor(df_alc_month)
+cor_month
+
+#Diabetes & Alcoholic Consumption days per month
+Q12 <- ggplot(df_alc_month, 
+              aes(x = alc_per_month, 
+                  fill = factor(DIABETE3, 
+                                levels = c("1", "3"),
+                                labels = c("Yes", 
+                                           "No")))) + 
+  geom_bar(position = "dodge")+
+  labs(y = "Frequency", 
+       fill = "Diabetic",
+       x = "Days per Month Alcohol Used",
+       title = "Diabetic: Alcoholic Drinks per Month") +
+  theme_minimal()
+
+##Box Plot: alcohol consumption
+ggplot(df_alc_month, aes(x = alc_per_month)) +
+  geom_boxplot() + 
+  xlab("Number of Days per Month Alcohol was Consumed")
+
+#13: Basic Descriptive Statistics
+summary(df_alc_month)
+Q13 <- describe(df_alc_month)
+
+
+#Q14: Run an appropriate regression predicting one of those variables. Identify the best model.
+
+#Diabetes and Alcohol per Month
+alc_mod <- lm(DIABETE3 ~ alc_per_month, data= df_alc_month)
+mod1 <- summary(alc_mod)
+
+#Diabetes & Education 
+edu_mod <- lm(DIABETE3 ~ EDUCA, data = df_clean)
+mod2 <- summary(edu_mod)
+
+#Diabetes and Gender + Alcohol per month 
+gender_mod <- lm(DIABETE3 ~ SEX + alc_per_month , data = df_alc_month)
+mod3 <-summary(gender_mod)
+
+
+# Diabetes and Education + Alcohol + Gender
+all_mod <- lm(DIABETE3~ EDUCA + alc_per_month + SEX, data = df_alc_month)
+mod4 <- summary(all_mod)
+
+#Best Model
+mod3
+mod3$r.squared
+AIC(gender_mod)
+
+
+Q14 <- gender_mod
+
+
+# Logistic Regression
+
+##Binomial
+df_alc_month$DIABETE3 <- as.factor(df_alc_month$DIABETE3)
+
+df_alc_month$DIABETE3 <- ifelse(df_alc_month$DIABETE3=='1',1,0)
+
+##Logistic Regressions
+log_mod <- glm(DIABETE3 ~ SEX + EDUCA + alc_per_month, binomial(), data = df_alc_month2)
+summary(log_mod)
+
+log_mod2 <- glm(DIABETE3 ~ SEX + alc_per_month, binomial(), data = df_alc_month)
+summary(log_mod2)
+
+#Plots
+gg_jitter <- ggplot(df_alc_month, aes(x=alc_per_month, y = DIABETE3)) +
+  geom_jitter(width =0, height = 0.05)
+
+##Convert to numeric
+df_alc_month$DIABETE3 <- as.numeric(df_alc_month$DIABETE3)
+
+gg_jitter + 
+  geom_smooth(method= 'glm',
+              metho.args = list(family= binomial))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
